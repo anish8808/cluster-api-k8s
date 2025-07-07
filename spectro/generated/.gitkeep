@@ -1,0 +1,2 @@
+# This file ensures the generated directory is tracked by git
+# The generated manifests will be placed here when running run.sh 
