@@ -33,6 +33,9 @@ spec:
         - --enable-leader-election
         command:
         - /manager
+        env:
+        - name: ENABLE_WEBHOOKS
+          value: "false"
         image: ghcr.io/canonical/cluster-api-k8s/bootstrap-controller:latest
         name: manager
       terminationGracePeriodSeconds: 10

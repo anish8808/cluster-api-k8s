@@ -1,11 +1,3 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  labels:
-    cluster.x-k8s.io/provider: control-plane-ck8s
-    control-plane: controller-manager
-  name: capi-webhook-system
----
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -1340,7 +1332,7 @@ spec:
       containers:
       - args:
         - --metrics-addr=127.0.0.1:8080
-        - --enable-leader-election
+        - --enable-leader-election=false
         command:
         - /manager
         env:
