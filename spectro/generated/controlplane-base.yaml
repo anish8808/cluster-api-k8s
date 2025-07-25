@@ -40,3 +40,8 @@ spec:
         image: ghcr.io/canonical/cluster-api-k8s/controlplane-controller:latest
         name: manager
       terminationGracePeriodSeconds: 10
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
