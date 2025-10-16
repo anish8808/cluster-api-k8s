@@ -18,6 +18,7 @@ package v1beta2
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,12 +41,20 @@ var _ admission.CustomDefaulter = &CK8sConfig{}
 var _ admission.CustomValidator = &CK8sConfig{}
 
 // ValidateCreate will do any extra validation when creating a CK8sControlPlane.
-func (c *CK8sConfig) ValidateCreate(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (c *CK8sConfig) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
+	c, ok := obj.(*CK8sConfig)
+	if !ok {
+		return nil, fmt.Errorf("expected *CK8sConfig, got %T", obj)
+	}
 	return []string{}, nil
 }
 
 // ValidateUpdate will do any extra validation when updating a CK8sControlPlane.
-func (c *CK8sConfig) ValidateUpdate(_ context.Context, _, _ runtime.Object) (admission.Warnings, error) {
+func (c *CK8sConfig) ValidateUpdate(_ context.Context, _, obj runtime.Object) (admission.Warnings, error) {
+	c, ok := obj.(*CK8sConfig)
+	if !ok {
+		return nil, fmt.Errorf("expected *CK8sConfig, got %T", obj)
+	}
 	return []string{}, nil
 }
 
@@ -55,6 +64,10 @@ func (c *CK8sConfig) ValidateDelete(_ context.Context, _ runtime.Object) (admiss
 }
 
 // Default will set default values for the CK8sControlPlane.
-func (c *CK8sConfig) Default(_ context.Context, _ runtime.Object) error {
+func (c *CK8sConfig) Default(_ context.Context, obj runtime.Object) error {
+	c, ok := obj.(*CK8sConfig)
+	if !ok {
+		return fmt.Errorf("expected *CK8sConfig, got %T", obj)
+	}
 	return nil
 }
