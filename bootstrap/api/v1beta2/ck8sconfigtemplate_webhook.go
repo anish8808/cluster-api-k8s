@@ -18,6 +18,7 @@ package v1beta2
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,12 +41,20 @@ var _ admission.CustomDefaulter = &CK8sConfigTemplate{}
 var _ admission.CustomValidator = &CK8sConfigTemplate{}
 
 // ValidateCreate will do any extra validation when creating a CK8sControlPlane.
-func (c *CK8sConfigTemplate) ValidateCreate(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (c *CK8sConfigTemplate) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
+	c, ok := obj.(*CK8sConfigTemplate)
+	if !ok {
+		return nil, fmt.Errorf("expected *CK8sConfigTemplate, got %T", obj)
+	}
 	return []string{}, nil
 }
 
 // ValidateUpdate will do any extra validation when updating a CK8sControlPlane.
-func (c *CK8sConfigTemplate) ValidateUpdate(_ context.Context, _, _ runtime.Object) (admission.Warnings, error) {
+func (c *CK8sConfigTemplate) ValidateUpdate(_ context.Context, _, obj runtime.Object) (admission.Warnings, error) {
+	c, ok := obj.(*CK8sConfigTemplate)
+	if !ok {
+		return nil, fmt.Errorf("expected *CK8sConfigTemplate, got %T", obj)
+	}
 	return []string{}, nil
 }
 
@@ -55,6 +64,10 @@ func (c *CK8sConfigTemplate) ValidateDelete(_ context.Context, _ runtime.Object)
 }
 
 // Default will set default values for the CK8sControlPlane.
-func (c *CK8sConfigTemplate) Default(_ context.Context, _ runtime.Object) error {
+func (c *CK8sConfigTemplate) Default(_ context.Context, obj runtime.Object) error {
+	c, ok := obj.(*CK8sConfigTemplate)
+	if !ok {
+		return fmt.Errorf("expected *CK8sConfigTemplate, got %T", obj)
+	}
 	return nil
 }

@@ -43,12 +43,20 @@ var _ admission.CustomDefaulter = &CK8sControlPlane{}
 var _ admission.CustomValidator = &CK8sControlPlane{}
 
 // ValidateCreate will do any extra validation when creating a CK8sControlPlane.
-func (in *CK8sControlPlane) ValidateCreate(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
+func (in *CK8sControlPlane) ValidateCreate(_ context.Context, obj runtime.Object) (admission.Warnings, error) {
+	in, ok := obj.(*CK8sControlPlane)
+	if !ok {
+		return nil, fmt.Errorf("expected *CK8sControlPlane, got %T", obj)
+	}
 	return []string{}, nil
 }
 
 // ValidateUpdate will do any extra validation when updating a CK8sControlPlane.
-func (in *CK8sControlPlane) ValidateUpdate(_ context.Context, _, _ runtime.Object) (admission.Warnings, error) {
+func (in *CK8sControlPlane) ValidateUpdate(_ context.Context, _, obj runtime.Object) (admission.Warnings, error) {
+	in, ok := obj.(*CK8sControlPlane)
+	if !ok {
+		return nil, fmt.Errorf("expected *CK8sControlPlane, got %T", obj)
+	}
 	return []string{}, nil
 }
 
