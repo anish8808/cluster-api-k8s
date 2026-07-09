@@ -6,7 +6,6 @@
 ## # Example usage
 ##
 ## $ docker build -t ghcr.io/canonical/cluster-api-k8s/k8s-snap:v1.32.2
-## $ docker build -t ghcr.io/canonical/cluster-api-k8s/k8s-snap:v1.32.2-moonray --build-arg BRANCH=autoupdate/moonray
 ##
 ## # Notes
 ##
@@ -20,12 +19,12 @@
 ## See https://kind.sigs.k8s.io/docs/design/node-image/
 ##
 ## !!!IMPORTANT!!! Keep this up to date with the minor version of k8s-snap.
-ARG BASE=kindest/node:v1.32.2
+ARG BASE=kindest/node:v1.33.2
 
 ## NOTE(neoaggelos): Builder uses the ubuntu:20.04 as base image
 ##
 ## !!!IMPORTANT!!! Keep the base image up to date with the base image from "snapcraft.yaml:base".
-ARG BUILD_BASE=ubuntu:20.04
+ARG BUILD_BASE=ubuntu:22.04
 
 ####################################################################################################
 ## IMAGE(builder): Used as base image for building k8s-snap components
@@ -48,12 +47,13 @@ RUN apt-get update \
 ## NOTE(neoaggelos): Go version used to build components
 ## !!!IMPORTANT!!! Keep up to date with "snapcraft.yaml:parts.build-deps.build-snaps.go"
 ADD install-go.sh /
-RUN /install-go.sh 1.23.0 && ln -s /usr/local/go/bin/go /usr/local/bin/go
 
 ## Prepare build environment
 ENV SNAPCRAFT_PART_INSTALL=/out
 RUN mkdir /out /build -p
 RUN git clone ${REPO} /src/k8s-snap -b ${BRANCH}
+
+RUN /install-go.sh $(grep '^go ' /src/k8s-snap/src/k8s/go.mod | cut -d' ' -f2) && ln -s /usr/local/go/bin/go /usr/local/bin/go
 
 ####################################################################################################
 ## IMAGE(builder-dqlite): Used as base image for building components that need dqlite
@@ -75,8 +75,8 @@ RUN mkdir -p /out/bin && mv ./bin/static/* /out/bin/
 ## components build
 FROM builder-dqlite AS build-components
 WORKDIR /src/k8s-snap
-RUN ./build-scripts/build-component.sh k8s-dqlite
 RUN ./build-scripts/build-component.sh cni
+RUN ./build-scripts/build-component.sh etcd
 RUN ./build-scripts/build-component.sh containerd
 RUN ./build-scripts/build-component.sh helm
 RUN ./build-scripts/build-component.sh runc
@@ -89,6 +89,9 @@ RUN if [ -n "$KUBERNETES_VERSION" ]; then \
       echo "$KUBERNETES_VERSION" > /src/k8s-snap/build-scripts/components/kubernetes/version; \
     fi
 RUN  ./build-scripts/build-component.sh kubernetes
+
+## add an empty commit to generate unique bom.json file based on Kubernetes version
+RUN git -c user.name="k8s-team" -c user.email="k8s-team@canonical.com" commit --allow-empty -m "kubernetes-$KUBERNETES_VERSION"
 
 ## generate bom.json file
 RUN apt-get install -y python3-yaml
@@ -140,6 +143,10 @@ COPY --from=build-components /bom.json /snap/k8s/current/
 COPY --from=build-kubernetes-upgrade-to /out /k8s/upgrade
 COPY --from=build-k8sd /out /snap/k8s/current
 COPY --from=build-preload-images /out/images /var/snap/k8s/common/images
+
+## NOTE(Reza): Install shared objects
+COPY --from=build-components /build/static-dqlite-deps/.deps/dynamic/lib /usr/lib
+COPY --from=build-components /build/static-dqlite-deps/.deps/dynamic/include /usr/include
 
 ## NOTE(neoaggelos): Install k8s files
 COPY --from=builder /src/k8s-snap/k8s /snap/k8s/current/k8s

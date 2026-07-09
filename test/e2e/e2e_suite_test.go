@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -32,6 +33,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
 	"k8s.io/klog/v2"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 	"sigs.k8s.io/cluster-api/test/framework"
@@ -66,6 +68,9 @@ var (
 
 	// skipCleanup prevents cleanup of test resources e.g. for debug purposes.
 	skipCleanup bool
+
+	// skipBootstrapClusterInitialization skips the bootstrap cluster initialization step.
+	skipBootstrapClusterInitialization bool
 )
 
 // Test suite global vars.
@@ -97,6 +102,7 @@ func init() {
 	flag.BoolVar(&skipCleanup, "e2e.skip-resource-cleanup", false, "if true, the resource cleanup after tests will be skipped")
 	flag.StringVar(&clusterctlConfig, "e2e.clusterctl-config", "", "file which tests will use as a clusterctl config. If it is not set, a local clusterctl repository (including a clusterctl config) will be created automatically.")
 	flag.BoolVar(&useExistingCluster, "e2e.use-existing-cluster", false, "if true, the test uses the current cluster instead of creating a new one (default discovery rules apply)")
+	flag.BoolVar(&skipBootstrapClusterInitialization, "e2e.skip-bootstrap-cluster-initialization", false, "if true, the test will skip the bootstrap cluster initialization step")
 }
 
 func TestE2E(t *testing.T) {
@@ -145,10 +151,15 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 	}
 
 	By("Setting up the bootstrap cluster")
+
 	bootstrapClusterProvider, bootstrapClusterProxy = setupBootstrapCluster(e2eConfig, scheme, useExistingCluster)
 
-	By("Initializing the bootstrap cluster")
-	initBootstrapCluster(bootstrapClusterProxy, e2eConfig, clusterctlConfigPath, artifactFolder)
+	if !skipBootstrapClusterInitialization {
+		By("Initializing the bootstrap cluster")
+		initBootstrapCluster(bootstrapClusterProxy, e2eConfig, clusterctlConfigPath, artifactFolder)
+	} else {
+		By("Skipping bootstrap cluster initialization")
+	}
 
 	return []byte(
 		strings.Join([]string{
@@ -227,21 +238,25 @@ func setupBootstrapCluster(config *clusterctl.E2EConfig, scheme *runtime.Scheme,
 	var clusterProvider bootstrap.ClusterProvider
 	kubeconfigPath := ""
 	if !useExistingCluster {
-		By("Creating the bootstrap cluster")
-		clusterProvider = bootstrap.CreateKindBootstrapClusterAndLoadImages(ctx, bootstrap.CreateKindBootstrapClusterAndLoadImagesInput{
-			Name:               config.ManagementClusterName,
-			KubernetesVersion:  config.GetVariable(KubernetesVersionManagement),
-			RequiresDockerSock: config.HasDockerProvider(),
-			Images:             config.Images,
-			IPFamily:           config.GetVariable(IPFamily),
-			LogFolder:          filepath.Join(artifactFolder, "kind"),
-		})
-		Expect(clusterProvider).ToNot(BeNil(), "Failed to create a bootstrap cluster")
+		if slices.Contains(config.InfrastructureProviders(), "docker") {
+			By("Creating the bootstrap cluster using Docker")
+			clusterProvider = bootstrap.CreateKindBootstrapClusterAndLoadImages(ctx, bootstrap.CreateKindBootstrapClusterAndLoadImagesInput{
+				Name:               config.ManagementClusterName,
+				KubernetesVersion:  config.GetVariable(KubernetesVersionManagement),
+				RequiresDockerSock: config.HasDockerProvider(),
+				Images:             config.Images,
+				IPFamily:           config.GetVariable(IPFamily),
+				LogFolder:          filepath.Join(artifactFolder, "kind"),
+			})
+			Expect(clusterProvider).ToNot(BeNil(), "Failed to create a bootstrap cluster")
 
-		kubeconfigPath = clusterProvider.GetKubeconfigPath()
-		Expect(kubeconfigPath).To(BeAnExistingFile(), "Failed to get the kubeconfig file for the bootstrap cluster")
+			kubeconfigPath = clusterProvider.GetKubeconfigPath()
+			Expect(kubeconfigPath).To(BeAnExistingFile(), "Failed to get the kubeconfig file for the bootstrap cluster")
+		} else if slices.Contains(config.InfrastructureProviders(), "incus") {
+			Fail("LXD bootstrap cluster creation is not yet implemented")
+		}
 	} else {
-		By("Using an existing bootstrap cluster")
+		Byf("Using an existing bootstrap cluster with kubeconfig %q", kubeconfigPath)
 	}
 
 	clusterProxy := framework.NewClusterProxy("bootstrap", kubeconfigPath, scheme)

@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	apiv1 "github.com/canonical/k8s-snap-api/api/v1"
-	apiv1_annotations "github.com/canonical/k8s-snap-api/api/v1/annotations"
 	"k8s.io/utils/ptr"
 	clusterv1 "sigs.k8s.io/cluster-api/api/v1beta1"
 
@@ -70,15 +69,22 @@ func GenerateInitControlPlaneConfig(cfg InitControlPlaneConfig) (apiv1.Bootstrap
 	}
 
 	switch cfg.DatastoreType {
-	case "", "k8s-dqlite":
-		// Set default datastore type to k8s-dqlite
-		out.DatastoreType = ptr.To("k8s-dqlite")
+	case "", "etcd":
+		out.DatastoreType = ptr.To("etcd")
 
-		k8sDqlitePort := cfg.ControlPlaneConfig.K8sDqlitePort
-		if k8sDqlitePort == 0 {
-			k8sDqlitePort = 2379
+		etcdPort := cfg.ControlPlaneConfig.EtcdPort
+		if etcdPort == 0 {
+			etcdPort = 2379
 		}
-		out.K8sDqlitePort = ptr.To(k8sDqlitePort)
+		out.EtcdPort = ptr.To(etcdPort)
+
+		etcdPeerPort := cfg.ControlPlaneConfig.EtcdPeerPort
+		if etcdPeerPort == 0 {
+			// TODO(berkayoz): This should be 2080 however it clashes with our workaround
+			// for exposing microcluster through 2080 via k8sd-proxy
+			etcdPeerPort = 2381
+		}
+		out.EtcdPeerPort = ptr.To(etcdPeerPort)
 	default:
 		out.DatastoreType = ptr.To("external")
 		out.DatastoreServers = cfg.DatastoreServers
@@ -91,15 +97,6 @@ func GenerateInitControlPlaneConfig(cfg InitControlPlaneConfig) (apiv1.Bootstrap
 	// cleaning up microcluster and files during upgrades.
 	if out.ClusterConfig.Annotations == nil {
 		out.ClusterConfig.Annotations = map[string]string{}
-	}
-
-	trueStr := "true"
-	if _, ok := out.ClusterConfig.Annotations[apiv1_annotations.AnnotationSkipCleanupKubernetesNodeOnRemove]; !ok {
-		out.ClusterConfig.Annotations[apiv1_annotations.AnnotationSkipCleanupKubernetesNodeOnRemove] = trueStr
-	}
-
-	if _, ok := out.ClusterConfig.Annotations[apiv1_annotations.AnnotationSkipStopServicesOnRemove]; !ok {
-		out.ClusterConfig.Annotations[apiv1_annotations.AnnotationSkipStopServicesOnRemove] = trueStr
 	}
 
 	// features
@@ -142,7 +139,6 @@ func GenerateInitControlPlaneConfig(cfg InitControlPlaneConfig) (apiv1.Bootstrap
 	out.ExtraNodeKubeAPIServerArgs = cfg.ControlPlaneConfig.ExtraKubeAPIServerArgs
 	out.ExtraNodeKubeControllerManagerArgs = cfg.ControlPlaneConfig.ExtraKubeControllerManagerArgs
 	out.ExtraNodeKubeSchedulerArgs = cfg.ControlPlaneConfig.ExtraKubeSchedulerArgs
-	out.ExtraNodeK8sDqliteArgs = cfg.ControlPlaneConfig.ExtraK8sDqliteArgs
 
 	out.ExtraNodeKubeProxyArgs = cfg.ExtraKubeProxyArgs
 	out.ExtraNodeKubeletArgs = cfg.ExtraKubeletArgs

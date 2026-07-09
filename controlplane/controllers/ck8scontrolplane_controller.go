@@ -79,7 +79,7 @@ func (r *CK8sControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	// Fetch the CK8sControlPlane instance.
 	kcp := &controlplanev1.CK8sControlPlane{}
-	if err := r.Client.Get(ctx, req.NamespacedName, kcp); err != nil {
+	if err := r.Get(ctx, req.NamespacedName, kcp); err != nil {
 		if apierrors.IsNotFound(err) {
 			return reconcile.Result{}, nil
 		}
@@ -133,7 +133,7 @@ func (r *CK8sControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 
 	var res ctrl.Result
-	if !kcp.ObjectMeta.DeletionTimestamp.IsZero() {
+	if !kcp.DeletionTimestamp.IsZero() {
 		// Handle deletion reconciliation loop.
 		res, err = r.reconcileDelete(ctx, cluster, kcp)
 	} else {
@@ -161,7 +161,7 @@ func (r *CK8sControlPlaneReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	// TODO: remove this as soon as we have a proper remote cluster cache in place.
 	// Make KCP to requeue in case status is not ready, so we can check for node status without waiting for a full resync (by default 10 minutes).
 	// Only requeue if we are not going in exponential backoff due to error, or if we are not already re-queueing, or if the object has a deletion timestamp.
-	if err == nil && !res.Requeue && !(res.RequeueAfter > 0) && kcp.ObjectMeta.DeletionTimestamp.IsZero() {
+	if err == nil && !res.Requeue && res.RequeueAfter <= 0 && kcp.DeletionTimestamp.IsZero() {
 		if !kcp.Status.Ready {
 			res = ctrl.Result{RequeueAfter: 20 * time.Second}
 		}
@@ -221,7 +221,7 @@ func (r *CK8sControlPlaneReconciler) reconcileDelete(ctx context.Context, cluste
 	for i := range machinesToDelete {
 		m := machinesToDelete[i]
 		logger := logger.WithValues("machine", m)
-		if err := r.Client.Delete(ctx, machinesToDelete[i]); err != nil && !apierrors.IsNotFound(err) {
+		if err := r.Delete(ctx, machinesToDelete[i]); err != nil && !apierrors.IsNotFound(err) {
 			logger.Error(err, "Failed to cleanup owned machine")
 			errs = append(errs, err)
 		}
@@ -395,12 +395,24 @@ func (r *CK8sControlPlaneReconciler) updateStatus(ctx context.Context, kcp *cont
 	kcp.Status.ReadyReplicas = status.ReadyNodes
 	kcp.Status.UnavailableReplicas = replicas - status.ReadyNodes
 
-	// NOTE(neoaggelos): We consider the control plane to be initialized iff the k8sd-config exists
-	if status.HasK8sdConfigMap {
+	enableDefaultNetwork := kcp.Spec.CK8sConfigSpec.InitConfig.GetEnableDefaultNetwork()
+
+	// NOTE(neoaggelos): We consider the control plane to be initialized iff the k8sd-config exists.
+	// When enableDefaultNetwork is false (user-managed CNI), k8sd-config may not appear until CNI
+	// is installed, so we fall back to API-server accessibility (ClusterStatus succeeded + replicas
+	// exist) to break the initialization deadlock and allow the MAAS controller to proceed.
+	if status.HasK8sdConfigMap || (!enableDefaultNetwork && replicas > 0) {
 		kcp.Status.Initialized = true
 	}
 
-	if kcp.Status.ReadyReplicas > 0 {
+	// When default network is disabled, nodes remain NotReady until the external CNI is
+	// installed by user. Mark the control plane Ready/Available as soon as
+	// it is initialized so that ControlPlaneInitializedCondition propagates to the Cluster object
+	// and the CAPI ClusterCacheTracker can establish a remote connection.
+	// Nodes will transition to Ready once CNI is applied, at which point ReadyReplicas > 0 and
+	// the normal path also satisfies this condition.
+	if kcp.Status.ReadyReplicas > 0 ||
+		(!enableDefaultNetwork && kcp.Status.Initialized && replicas > 0) {
 		kcp.Status.Ready = true
 		conditions.MarkTrue(kcp, controlplanev1.AvailableCondition)
 	}
@@ -443,7 +455,7 @@ func (r *CK8sControlPlaneReconciler) reconcile(ctx context.Context, cluster *clu
 	logger.Info("Reconcile CK8sControlPlane")
 
 	// Make sure to reconcile the external infrastructure reference.
-	if err := r.reconcileExternalReference(ctx, cluster, kcp.Spec.MachineTemplate.InfrastructureRef); err != nil {
+	if err := r.reconcileExternalReference(ctx, cluster, &kcp.Spec.MachineTemplate.InfrastructureRef); err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -462,10 +474,12 @@ func (r *CK8sControlPlaneReconciler) reconcile(ctx context.Context, cluster *clu
 	}
 	conditions.MarkTrue(kcp, controlplanev1.TokenAvailableCondition)
 
-	// If ControlPlaneEndpoint is not set, return early
+	// If ControlPlaneEndpoint is not set, requeue to wait for it to be set.
+	// (berkayoz): This change to requeue instead of returning is to ensure
+	// intermittent reconcile skips such as the one that happens in `Workload cluster scaling` tests
 	if !cluster.Spec.ControlPlaneEndpoint.IsValid() {
 		logger.Info("Cluster does not yet have a ControlPlaneEndpoint defined")
-		return reconcile.Result{}, nil
+		return reconcile.Result{RequeueAfter: 3 * time.Second}, nil
 	}
 
 	// Generate Cluster Kubeconfig if needed
@@ -561,12 +575,22 @@ func (r *CK8sControlPlaneReconciler) reconcile(ctx context.Context, cluster *clu
 	return reconcile.Result{}, nil
 }
 
-func (r *CK8sControlPlaneReconciler) reconcileExternalReference(ctx context.Context, cluster *clusterv1.Cluster, ref corev1.ObjectReference) error {
+func (r *CK8sControlPlaneReconciler) reconcileExternalReference(ctx context.Context, cluster *clusterv1.Cluster, ref *corev1.ObjectReference) error {
 	if !strings.HasSuffix(ref.Kind, clusterv1.TemplateSuffix) {
 		return nil
 	}
 
-	obj, err := external.Get(ctx, r.Client, &ref)
+	logger := r.Log.WithValues("namespace", ref.Namespace, "CK8sControlPlane", ref.Name, "cluster", cluster.Name)
+	logger.Info("Reconciling external template reference", "ref", ref)
+
+	// Ensure the ref namespace is populated for objects not yet defaulted by webhook
+	// https://github.com/kubernetes-sigs/cluster-api/pull/11361
+	if ref.Namespace == "" {
+		ref = ref.DeepCopy()
+		ref.Namespace = cluster.Namespace
+	}
+
+	obj, err := external.Get(ctx, r.Client, ref)
 	if err != nil {
 		return err
 	}

@@ -137,7 +137,7 @@ func (r *CK8sControlPlaneReconciler) scaleDownControlPlane(
 	}
 
 	logger = logger.WithValues("machine", machineToDelete)
-	if err := r.Client.Delete(ctx, machineToDelete); err != nil && !apierrors.IsNotFound(err) {
+	if err := r.Delete(ctx, machineToDelete); err != nil && !apierrors.IsNotFound(err) {
 		logger.Error(err, "Failed to delete control plane machine")
 		r.recorder.Eventf(kcp, corev1.EventTypeWarning, "FailedScaleDown",
 			"Failed to delete control plane Machine %s for cluster %s/%s control plane: %v", machineToDelete.Name, cluster.Namespace, cluster.Name, err)
@@ -245,6 +245,12 @@ func (r *CK8sControlPlaneReconciler) cloneConfigsAndGenerateMachine(ctx context.
 		UID:        kcp.UID,
 	}
 
+	// Ensure the ref namespace is populated for objects not yet defaulted by webhook
+	if kcp.Spec.MachineTemplate.InfrastructureRef.Namespace == "" {
+		kcp.Spec.MachineTemplate.InfrastructureRef = *kcp.Spec.MachineTemplate.InfrastructureRef.DeepCopy()
+		kcp.Spec.MachineTemplate.InfrastructureRef.Namespace = cluster.Namespace
+	}
+
 	// Clone the infrastructure template
 	infraRef, err := external.CreateFromTemplate(ctx, &external.CreateFromTemplateInput{
 		Client:      r.Client,
@@ -295,7 +301,7 @@ func (r *CK8sControlPlaneReconciler) cleanupFromGeneration(ctx context.Context, 
 			config.SetNamespace(ref.Namespace)
 			config.SetName(ref.Name)
 
-			if err := r.Client.Delete(ctx, config); err != nil && !apierrors.IsNotFound(err) {
+			if err := r.Delete(ctx, config); err != nil && !apierrors.IsNotFound(err) {
 				errs = append(errs, fmt.Errorf("failed to cleanup generated resources after error: %w", err))
 			}
 		}
@@ -323,7 +329,7 @@ func (r *CK8sControlPlaneReconciler) generateCK8sConfig(ctx context.Context, kcp
 		Spec: *spec,
 	}
 
-	if err := r.Client.Create(ctx, bootstrapConfig); err != nil {
+	if err := r.Create(ctx, bootstrapConfig); err != nil {
 		return nil, fmt.Errorf("failed to create bootstrap configuration: %w", err)
 	}
 
@@ -381,7 +387,7 @@ func (r *CK8sControlPlaneReconciler) generateMachine(ctx context.Context, kcp *c
 
 	machine.SetAnnotations(annotations)
 
-	if err := r.Client.Create(ctx, machine); err != nil {
+	if err := r.Create(ctx, machine); err != nil {
 		return fmt.Errorf("failed to create machine: %w", err)
 	}
 

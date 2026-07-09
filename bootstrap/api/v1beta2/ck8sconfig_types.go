@@ -133,10 +133,10 @@ type CK8sConfigSpec struct {
 	ExtraK8sAPIServerProxyArgs map[string]*string `json:"ExtraK8sAPIServerProxyArgs,omitempty"`
 }
 
-// IsEtcdManaged returns true if the control plane is using k8s-dqlite.
+// IsEtcdManaged returns true if the control plane is using etcd.
 func (c *CK8sConfigSpec) IsEtcdManaged() bool {
 	switch c.ControlPlaneConfig.DatastoreType {
-	case "", "k8s-dqlite":
+	case "", "etcd":
 		return true
 	}
 	return false
@@ -164,9 +164,13 @@ type CK8sControlPlaneConfig struct {
 	// +optional
 	DatastoreServersSecretRef SecretRef `json:"datastoreServersSecretRef,omitempty"`
 
-	// K8sDqlitePort is the port to use for k8s-dqlite. If unset, 2379 (etcd) will be used.
+	// EtcdPort is the port to use for etcd. If unset, 2379 will be used.
 	// +optional
-	K8sDqlitePort int `json:"k8sDqlitePort,omitempty"`
+	EtcdPort int `json:"etcdPort,omitempty"`
+
+	// EtcdPeerPort is the port to use for etcd peer communication. If unset, 2381 will be used.
+	// +optional
+	EtcdPeerPort int `json:"etcdPeerPort,omitempty"`
 
 	// MicroclusterAddress is the address (or CIDR) to use for microcluster. If unset, the default node interface is chosen.
 	MicroclusterAddress string `json:"microclusterAddress,omitempty"`
@@ -186,10 +190,6 @@ type CK8sControlPlaneConfig struct {
 	// ExtraKubeSchedulerArgs - extra arguments to add to kube-scheduler.
 	// +optional
 	ExtraKubeSchedulerArgs map[string]*string `json:"extraKubeSchedulerArgs,omitempty"`
-
-	// ExtraK8sDqliteArgs - extra arguments to add to k8s-dqlite.
-	// +optional
-	ExtraK8sDqliteArgs map[string]*string `json:"ExtraK8sDqliteArgs,omitempty"`
 }
 
 // GetMicroclusterPort returns the port to use for microcluster.

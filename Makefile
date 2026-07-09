@@ -20,7 +20,7 @@ SHELL:=/usr/bin/env bash
 
 .DEFAULT_GOAL:=help
 
-GO_VERSION ?= 1.23.0
+GO_VERSION ?= $(shell grep '^go ' go.mod | cut -d' ' -f2 | sed 's/\.0$$//')
 GO_CONTAINER_IMAGE ?= docker.io/library/golang:$(GO_VERSION)
 
 ARCH ?= $(shell go env GOARCH)
@@ -79,7 +79,7 @@ ENVSUBST_BIN := envsubst
 ENVSUBST := $(TOOLS_BIN_DIR)/$(ENVSUBST_BIN)
 
 # Bump as necessary/desired to latest that supports our version of go at https://github.com/golangci/golangci-lint/releases
-GOLANGCI_LINT_VER := v1.61.0
+GOLANGCI_LINT_VER := v2.3.0
 GOLANGCI_LINT_BIN := golangci-lint
 GOLANGCI_LINT := $(TOOLS_BIN_DIR)/$(GOLANGCI_LINT_BIN)-$(GOLANGCI_LINT_VER)
 
@@ -99,9 +99,10 @@ GINKGO_NODES ?= 1 # GINKGO_NODES is the number of parallel nodes to run
 GINKGO_TIMEOUT ?= 2h
 GINKGO_POLL_PROGRESS_AFTER ?= 60m
 GINKGO_POLL_PROGRESS_INTERVAL ?= 5m
-E2E_INFRA ?= docker
+E2E_INFRA ?= incus
 E2E_CONF_FILE ?= $(TEST_DIR)/e2e/config/ck8s-$(E2E_INFRA).yaml
 SKIP_RESOURCE_CLEANUP ?= false
+SKIP_BOOTSTRAP_CLUSTER_INITIALIZATION ?= false
 USE_EXISTING_CLUSTER ?= false
 GINKGO_NOCOLOR ?= false
 
@@ -287,7 +288,9 @@ test-e2e: $(GINKGO) $(KUSTOMIZE) ## Run the end-to-end tests
 		--output-dir="$(ARTIFACTS)" --junit-report="junit.e2e_suite.1.xml" $(GINKGO_ARGS) $(TEST_DIR)/e2e -- \
 	    -e2e.artifacts-folder="$(ARTIFACTS)" \
 	    -e2e.config="$(E2E_CONF_FILE)" \
-	    -e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) -e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER)
+	    -e2e.skip-resource-cleanup=$(SKIP_RESOURCE_CLEANUP) \
+		-e2e.use-existing-cluster=$(USE_EXISTING_CLUSTER) \
+		-e2e.skip-bootstrap-cluster-initialization=$(SKIP_BOOTSTRAP_CLUSTER_INITIALIZATION)
 
 # Build manager binary
 manager-controlplane: generate-controlplane
